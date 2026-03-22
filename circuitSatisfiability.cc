@@ -16,6 +16,7 @@
 #include <iostream>
 #include <climits>
 #include <array>
+#include <mpi.h>
 
 using std::cout, std::endl;
 
@@ -34,27 +35,48 @@ inline constexpr bool EXTRACT_BIT(unsigned int n, unsigned int i) {
 }
 
 typedef std::array<bool, SIZE> input;
+constexpr unsigned long long MAX_COMBINATIONS = 1ULL << SIZE; // totaal aantal combinaties (2^SIZE), voorkomt overflow en oneindige loop
 
 int checkCircuit(int, input&);
 
 int main (int argc, char *argv[]) {
-   unsigned int i, combination; // loop variable (32 bits)
-   int id = -1;                 // process id
+   unsigned int i;
+   unsigned long long combination;
+   int id = 0; // welk process is dit? (0, 1, 2, 3)
+   int numProcesses = 0; // hoeveel processen zijn er? (1, 2, 3, 4)
    int count = 0;               // number of solutions
+   int globalCount = 0;
+
+   double startTime = 0.0, totalTime = 0.0, maxTime = 0.0;
 
    input v;
 
-   cout << endl << "Process " << id << " is checking the circuit..." << endl;
+   MPI_Init(&argc, &argv); // initialiseer MPI
+   MPI_Comm_rank(MPI_COMM_WORLD, &id); // bepaal id van dit proces
+   MPI_Comm_size(MPI_COMM_WORLD, &numProcesses); // bepaal hoeveel processen er zijn
 
-   for (combination = 0; combination < UINT_MAX; combination++) {
+   cout << endl << "Process " << (id + 1) << " of " << numProcesses
+      << " is checking the circuit..." << endl;
+
+   startTime = MPI_Wtime();
+
+   for (combination = id; combination < MAX_COMBINATIONS; combination += numProcesses) {
       for (i = 0; i < SIZE; i++)
          v[i] = EXTRACT_BIT(combination, i);
 
       count += checkCircuit(id, v);
    }
+   totalTime = MPI_Wtime() - startTime;
 
-   cout << "Process " << id << " finished." << endl;
-   cout << "A total of " << count << " solutions were found." << endl << endl;
+   MPI_Reduce(&count, &globalCount, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+   MPI_Reduce(&totalTime, &maxTime, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
+   if (id == 0) {
+      cout << "Execution time: " << maxTime << " seconds." << endl;
+      cout << "A total of " << globalCount << " solutions were found." << endl << endl;
+   }
+
+   MPI_Finalize(); // sluit MPI af
    return 0;
 }
 
